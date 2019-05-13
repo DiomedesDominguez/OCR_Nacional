@@ -1,8 +1,12 @@
 ﻿using OpenCvSharp;
 using OpenCvSharp.Extensions;
+using OpenCvSharp.Text;
 using System;
+using System.Drawing;
 using System.IO;
 using System.Windows;
+using System.Windows.Controls;
+using Tesseract;
 
 namespace DNMOFT.OCR
 {
@@ -14,12 +18,102 @@ namespace DNMOFT.OCR
         public MainWindow()
         {
             InitializeComponent();
+            DrawLettersBoxes();
 
         }
         private string INPUT_FILE = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Demo", "receipt.jpg");
         private void Scan_Click(object sender, RoutedEventArgs e)
         {
-            DrawLettersBoxes();
+            var tag = (sender as Button).Tag.ToString();
+            //UseTesseract3(tag);
+            Mat image = new Mat();
+            switch (tag)
+            {
+                case "0":
+                    image = BitmapConverter.ToMat(ImageWpfToGDI(imgReceipt0.Source));
+                    break;
+                case "1":
+                    image = BitmapConverter.ToMat(ImageWpfToGDI(imgReceipt1.Source));
+                    break;
+                case "2":
+                    image = BitmapConverter.ToMat(ImageWpfToGDI(imgReceipt2.Source));
+                    break;
+                case "3":
+                    image = BitmapConverter.ToMat(ImageWpfToGDI(imgReceipt3.Source));
+                    break;
+                default:
+                    break;
+            }
+            using (var tesseract = OCRTesseract.Create(@"./tessdata", charWhitelist: @"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.,:/-\*"))
+            {
+                tesseract.Run(image,
+                    out var outputText, out var componentRects, out var componentTexts, out var componentConfidences, ComponentLevels.TextLine);
+
+                switch (tag)
+                {
+                    case "0":
+                        Results0.Text = outputText;
+                        break;
+                    case "1":
+                        Results1.Text = outputText;
+                        break;
+                    case "2":
+                        Results2.Text = outputText;
+                        break;
+                    case "3":
+                        Results3.Text = outputText;
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+
+        private void UseTesseract3(string tag)
+        {
+            switch (tag)
+            {
+                case "0":
+                    Results0.Text = GetText(ImageWpfToGDI(imgReceipt0.Source));
+                    break;
+                case "1":
+                    Results1.Text = GetText(ImageWpfToGDI(imgReceipt1.Source));
+                    break;
+                case "2":
+                    Results2.Text = GetText(ImageWpfToGDI(imgReceipt2.Source));
+                    break;
+                case "3":
+                    Results3.Text = GetText(ImageWpfToGDI(imgReceipt3.Source));
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        private Bitmap ImageWpfToGDI(System.Windows.Media.ImageSource image)
+        {
+            MemoryStream ms = new MemoryStream();
+            var encoder = new System.Windows.Media.Imaging.BmpBitmapEncoder();
+            encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(image as System.Windows.Media.Imaging.BitmapSource));
+            encoder.Save(ms);
+            ms.Flush();
+            return System.Drawing.Image.FromStream(ms) as Bitmap;
+        }
+        public string GetText(Bitmap imgsource)
+        {
+            var ocrtext = string.Empty;
+            using (var engine = new TesseractEngine(@"./tessdata", "eng", EngineMode.Default))
+            {
+                using (var img = PixConverter.ToPix(imgsource))
+                {
+                    using (var page = engine.Process(img))
+                    {
+                        ocrtext = page.GetText();
+                    }
+                }
+            }
+
+            return ocrtext;
         }
 
         private void DrawLettersBoxes()
@@ -29,14 +123,12 @@ namespace DNMOFT.OCR
 
             // downsample and use it for processing
             Cv2.PyrDown(large, rgb);
-            large.Dispose();
 
             Cv2.CvtColor(rgb, small, ColorConversionCodes.BGR2GRAY);
 
             // morphological gradient
             var morphKernel = Cv2.GetStructuringElement(MorphShapes.Ellipse, new OpenCvSharp.Size(3, 3));
             Cv2.MorphologyEx(small, grad, MorphTypes.Gradient, morphKernel);
-            small.Dispose();
 
             // binarize
             Cv2.Threshold(grad, bw, 0, 255, ThresholdTypes.Binary | ThresholdTypes.Otsu);
@@ -50,9 +142,11 @@ namespace DNMOFT.OCR
 
             Cv2.FindContours(connected, out OpenCvSharp.Point[][] contours, out HierarchyIndex[] hierarchy, RetrievalModes.CComp, ContourApproximationModes.ApproxSimple, new OpenCvSharp.Point(0, 0));
 
+            var hierarchyLength = hierarchy.Length;
+            hierarchy = null;
+
             // filter contours
-            var idx = 0;
-            foreach (var hierarchyItem in hierarchy)
+            for (int idx = 0; idx < hierarchyLength; idx++)
             {
                 OpenCvSharp.Rect rect = Cv2.BoundingRect(contours[idx]);
                 var maskROI = new Mat(mask, rect);
@@ -72,9 +166,11 @@ namespace DNMOFT.OCR
                 {
                     Cv2.Rectangle(rgb, rect, new Scalar(0, 255, 0), 2);
                 }
-                idx++;
             }
-            imgReceipt.Source = WriteableBitmapConverter.ToWriteableBitmap(rgb);
+            imgReceipt0.Source = WriteableBitmapConverter.ToWriteableBitmap(large);
+            imgReceipt1.Source = WriteableBitmapConverter.ToWriteableBitmap(grad);
+            imgReceipt2.Source = WriteableBitmapConverter.ToWriteableBitmap(bw);
+            imgReceipt3.Source = WriteableBitmapConverter.ToWriteableBitmap(rgb);
         }
 
     }
